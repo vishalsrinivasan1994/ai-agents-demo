@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distribution agent: step through</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+  :root{
+    --oxford:#0C1B3B; --mayan:#33CCFF; --atomic:#FF9326;
+    --indigo:#004A80; --soft:#DCEFFA; --slate:#7A8799; --paper:#F7FAFC;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--paper);}
+  body{font-family:'IBM Plex Sans', system-ui, sans-serif; color:var(--oxford);}
+
+  .wrap{max-width:1440px; margin:0 auto; padding:24px 20px 40px;}
+  h1{
+    font-family:'Space Grotesk', sans-serif; font-size:clamp(22px,3.2vw,30px);
+    font-weight:600; margin:0 0 6px; letter-spacing:-0.01em;
+  }
+  .sub{color:var(--slate); font-size:15px; margin:0 0 14px; max-width:660px;}
+
+  .controls{display:flex; align-items:center; gap:14px; margin-bottom:18px; flex-wrap:wrap;}
+  .btn{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13.5px;
+    border:1.5px solid var(--indigo); background:#fff; color:var(--indigo);
+    border-radius:6px; padding:9px 18px; cursor:pointer;
+  }
+  .btn.primary{background:var(--indigo); color:#fff;}
+  .btn:disabled{opacity:.35; cursor:default;}
+  .btn.ghost{border-color:var(--slate); color:var(--slate);}
+  .progress{font-size:12.5px; color:var(--slate); font-family:'IBM Plex Mono', monospace;}
+
+
+  /* Stage scales with its own width: --u is "1px at a 1000px-wide stage" */
+  .stage-holder{
+    container-type:inline-size; width:100%; margin:0 auto;
+    max-width:min(100%, clamp(520px, calc((100vh - 140px) * 5 / 3), 1400px));
+  }
+  .stage{position:relative; width:100%; aspect-ratio:5/3; background:var(--paper); --u:calc(100cqw / 1000);}
+  .wires{position:absolute; inset:0; width:100%; height:100%; overflow:visible; z-index:1;}
+
+  /* ---- things that only exist after login ---- */
+  .revealable{
+    opacity:0; transform:scale(.92); transition:opacity .5s ease, transform .5s ease;
+  }
+  .revealable.open{opacity:1; transform:scale(1);}
+
+  /* ---- the pane ---- */
+  .erp-box{
+    position:absolute; left:1%; top:5%; width:74%; height:93%;
+    background:#fff; border:2px solid var(--indigo); border-radius:12px; z-index:0;
+    transform-origin:center;
+  }
+  .pane-footer{
+    position:absolute; left:0; right:0; bottom:0;
+    padding:calc(11 * var(--u)) calc(18 * var(--u));
+    border-top:1px solid var(--soft); border-radius:0 0 10px 10px; background:#fff;
+    display:flex; align-items:center;
+  }
+  .controls.in-pane{margin:0; width:100%; flex-wrap:nowrap; gap:calc(12 * var(--u));}
+  .controls.in-pane .btn{
+    font-size:max(12px, calc(15 * var(--u)));
+    padding:calc(8 * var(--u)) calc(18 * var(--u)); border-radius:calc(6 * var(--u)); white-space:nowrap;
+  }
+  .controls.in-pane .progress{font-size:max(11px, calc(14 * var(--u))); margin-left:auto; white-space:nowrap;}
+
+  .erp-label{
+    background:none; padding:0;
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(21 * var(--u));
+  }
+  .erp-label-row{
+    position:absolute; left:38%; top:5%; transform:translate(-50%,-50%);
+    display:flex; align-items:center; gap:calc(8 * var(--u)); z-index:1;
+    background:var(--paper); padding:calc(2 * var(--u)) calc(14 * var(--u));
+  }
+  .erp-label-row.revealable{
+    opacity:0; transform:translate(-50%,-50%) scale(.92);
+    transition:opacity .5s ease, transform .5s ease;
+  }
+  .erp-label-row.revealable.open{
+    opacity:1; transform:translate(-50%,-50%) scale(1);
+  }
+  .erp-version{
+    font-family:'IBM Plex Mono', monospace; font-size:calc(16 * var(--u)); font-weight:700; color:#fff;
+    background:var(--indigo); border-radius:6px; padding:calc(3 * var(--u)) calc(10 * var(--u));
+    transition:background-color .3s;
+  }
+  .erp-version.v2{background:var(--atomic); color:var(--oxford);}
+  .erp-version.flip{animation:versionFlip .8s ease;}
+  @keyframes versionFlip{
+    0%{transform:scale(1) rotateX(0deg); background:var(--indigo);}
+    35%{transform:scale(1.3) rotateX(90deg); background:var(--atomic);}
+    55%{transform:scale(1.3) rotateX(90deg); background:var(--atomic);}
+    100%{transform:scale(1) rotateX(0deg); background:var(--atomic); color:var(--oxford);}
+  }
+
+  .bento-tile{
+    position:absolute;
+    border:2px solid var(--slate); border-radius:calc(10 * var(--u)); background:#fff;
+    display:flex; align-items:center; justify-content:center; text-align:center; padding:4px;
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(17 * var(--u)); color:var(--slate);
+    z-index:1;
+  }
+  .bento-tile.screen-tile{
+    flex-direction:column; align-items:flex-start; justify-content:flex-start;
+    padding:calc(14 * var(--u)) calc(16 * var(--u)); font-size:calc(16 * var(--u));
+  }
+  .bento-tile.screen-tile .fake-line{
+    height:max(3px, calc(4 * var(--u))); background:var(--soft); border-radius:2px;
+    margin-top:calc(11 * var(--u)); align-self:stretch;
+  }
+
+  .chip.distribution{
+    position:absolute; left:4%; top:9%; width:16.75%; height:20%;
+    border:2px solid var(--indigo); border-radius:calc(8 * var(--u)); background:#fff;
+    display:flex; flex-direction:column; justify-content:flex-start; align-items:flex-start; gap:0;
+    padding:calc(14 * var(--u)) calc(16 * var(--u)); z-index:1; transform-origin:center;
+    transition:left .8s ease, top .8s ease, width .8s ease, height .8s ease, opacity .5s ease, transform .5s ease;
+  }
+  .chip.distribution .mini-title{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(18 * var(--u)); color:var(--indigo);
+    text-align:left;
+  }
+  .chip.distribution .fake-line{
+    height:max(3px, calc(4 * var(--u))); background:var(--soft); border-radius:2px;
+    margin-top:calc(11 * var(--u)); align-self:stretch; width:100%;
+  }
+  .chip.distribution .center-title{display:none;}
+  .chip.distribution .fields-wrap{display:none; width:100%;}
+  .chip.distribution .stock-field{margin-bottom:0;}
+  .chip.distribution.center-pos{
+    left:14%; top:11%; width:42%; height:29%;
+    justify-content:flex-start; align-items:stretch; padding:calc(12 * var(--u)) calc(16 * var(--u));
+  }
+  .chip.distribution.center-pos .mini-title{font-size:calc(14 * var(--u)); text-align:left; margin-bottom:calc(4 * var(--u));}
+  .chip.distribution.center-pos .bento-title{display:none;}
+  .chip.distribution.center-pos .center-title{display:block;}
+  .chip.distribution.center-pos .fields-wrap{display:block;}
+  .chip.distribution.center-pos .fake-line{display:none;}
+
+  #ai-automation{
+    position:absolute; left:4%; top:54%; width:36%; height:14%;
+    border:none; border-radius:calc(10 * var(--u)); background:var(--indigo);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(24 * var(--u)); color:#fff;
+    z-index:1; transform-origin:center;
+    transition:left .8s ease, top .8s ease, width .8s ease, height .8s ease, opacity .5s ease, transform .5s ease, box-shadow .5s, background-color .5s, border-color .5s, color .5s;
+  }
+  #ai-automation.center-pos{
+    left:24%; top:46%; width:22%; height:11%; font-size:calc(18 * var(--u));
+    background:#fff; color:var(--indigo); border:2px solid var(--indigo);
+  }
+  #ai-automation.lit{box-shadow:0 0 0 calc(8 * var(--u)) rgba(51,204,255,.18); background:var(--soft); color:var(--indigo); border-color:var(--mayan);}
+  #ai-assistant{
+    position:absolute; left:42%; top:54%; width:35%; height:14%;
+    border:none; border-radius:calc(10 * var(--u)); background:var(--slate);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(21 * var(--u)); color:#fff;
+    z-index:1; transform-origin:center;
+  }
+  .bento-tile.tool-solid{border:none; color:#fff; font-size:calc(18 * var(--u));}
+  .bento-tile.tool-solid.receipt{background:var(--mayan); color:var(--oxford);}
+  .bento-tile.tool-solid.charts{background:var(--atomic);}
+  .bento-tile.tool-solid.anomaly{background:var(--oxford);}
+  @keyframes toolFloat{
+    0%,100%{transform:scale(1) translateY(0);}
+    50%{transform:scale(1) translateY(calc(-6 * var(--u)));}
+  }
+  #ai-automation{animation:toolFloat 3s ease-in-out infinite;}
+  #ai-automation.center-pos{animation:none;}
+  #ai-assistant{animation:toolFloat 3.4s ease-in-out infinite .15s;}
+  .bento-tile.receipt{animation:toolFloat 3.7s ease-in-out infinite .3s;}
+  .bento-tile.charts{animation:toolFloat 3.2s ease-in-out infinite .45s;}
+  .bento-tile.anomaly{animation:toolFloat 3.9s ease-in-out infinite .1s;}
+
+  .agent-wrap{
+    position:absolute; left:35%; top:64%; width:calc(36 * var(--u)); height:calc(36 * var(--u));
+    transform:translate(-50%,-50%) scale(.3); opacity:0; z-index:3;
+    transition:opacity .4s, transform .4s, left .7s ease, top .7s ease;
+  }
+  .agent-wrap.show{opacity:1; transform:translate(-50%,-50%) scale(1.4);}
+  .agent-jiggle{
+    width:100%; height:100%; border-radius:50%; background:var(--mayan);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 10px 2px rgba(51,204,255,.5);
+    transition:background-color .4s, box-shadow .4s;
+  }
+  .agent-jiggle svg{width:calc(22 * var(--u)); height:calc(22 * var(--u));}
+  .agent-wrap.upgraded .agent-jiggle{
+    background:var(--atomic);
+    box-shadow:0 0 10px 2px rgba(255,147,38,.5);
+  }
+  .agent-wrap.show .agent-jiggle{animation:jiggle .9s ease-in-out infinite;}
+  @keyframes jiggle{
+    0%,100%{transform:rotate(0deg);}
+    25%{transform:rotate(-9deg);}
+    75%{transform:rotate(9deg);}
+  }
+  .hand{
+    position:absolute; top:50%; width:calc(11 * var(--u)); height:calc(5 * var(--u));
+    background:var(--indigo); border-radius:2px;
+    opacity:0; transform:translateY(-50%) scaleX(0);
+    transition:opacity .3s, transform .3s; z-index:2;
+  }
+  .hand.show{opacity:1; transform:translateY(-50%) scaleX(1);}
+  .hand.left{left:calc(-11 * var(--u)); transform-origin:right center;}
+  .hand.right{right:calc(-11 * var(--u)); transform-origin:left center;}
+  .forearm{
+    position:absolute; width:calc(9 * var(--u)); height:calc(4.5 * var(--u)); border-radius:2px;
+    background:var(--indigo); top:0;
+  }
+  .hand.left .forearm{left:calc(-7 * var(--u)); transform-origin:right center; transform:rotate(-38deg);}
+  .hand.right .forearm{right:calc(-7 * var(--u)); transform-origin:left center; transform:rotate(38deg);}
+  .forearm::after{
+    content:""; position:absolute; width:calc(6.5 * var(--u)); height:calc(6.5 * var(--u)); border-radius:50%;
+    background:var(--indigo); top:calc(-1 * var(--u));
+  }
+  .hand.left .forearm::after{left:calc(-6.5 * var(--u));}
+  .hand.right .forearm::after{right:calc(-6.5 * var(--u));}
+
+  .hosts-box{
+    position:absolute; left:76.5%; top:24%; width:23.5%; height:28%;
+    background:#fff; border:2px solid var(--indigo); border-radius:calc(10 * var(--u));
+    padding:calc(14 * var(--u)) calc(12 * var(--u)); z-index:2;
+    opacity:0; transform:scale(.9); transition:opacity .4s, transform .4s;
+  }
+  .hosts-box.show{opacity:1; transform:scale(1);}
+  .hosts-title{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(20 * var(--u));
+    color:var(--indigo); margin-bottom:calc(8 * var(--u));
+  }
+  .hosts-box ul{list-style:none; margin:0; padding:0;}
+  .hosts-box li{
+    font-family:'IBM Plex Mono', monospace; font-size:calc(14 * var(--u)); color:var(--slate);
+    padding:calc(7 * var(--u)) 0; border-top:1px dashed #DCEFFA; white-space:nowrap;
+  }
+  .hosts-box li:first-child{border-top:none;}
+
+  .db-badge{
+    position:absolute; left:8.5%; top:66%; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; gap:calc(8 * var(--u));
+    opacity:0; transition:opacity .4s; z-index:2;
+  }
+  .db-badge.show{opacity:1;}
+  .db-badge span{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(20 * var(--u)); color:var(--indigo);
+  }
+  .db-icon-wrap{position:relative; display:flex; align-items:center; justify-content:center;}
+  .db-badge svg{width:calc(120 * var(--u)); height:calc(120 * var(--u)); transition:transform .3s, filter .3s; position:relative; z-index:1;}
+  .db-badge.pulse svg{transform:scale(1.15); filter:drop-shadow(0 0 8px rgba(51,204,255,.8));}
+  .scan-ring{
+    position:absolute; inset:-8px; border:2px solid var(--mayan); border-radius:50%;
+    opacity:0; pointer-events:none;
+  }
+  .db-badge.pulse .scan-ring{animation:dbScan .9s ease-out infinite;}
+  .db-badge.pulse .scan-ring.ring2{animation-delay:.3s;}
+  @keyframes dbScan{
+    0%{opacity:.9; transform:scale(1);}
+    100%{opacity:0; transform:scale(2.1);}
+  }
+
+  .web-search-badge{
+    position:absolute; left:88.25%; top:13.5%; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; gap:calc(5 * var(--u));
+    opacity:0; transition:opacity .4s; z-index:2;
+  }
+  .web-search-badge.show{opacity:1;}
+  .web-search-badge span{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(18 * var(--u)); color:var(--indigo);
+  }
+  .web-search-badge svg{width:calc(72 * var(--u)); height:calc(72 * var(--u));}
+  .spin-globe{animation:spinGlobe 4s linear infinite;}
+  @keyframes spinGlobe{to{transform:rotate(360deg);}}
+  .search-wire{
+    position:absolute; left:88.25%; top:22%; width:3px; height:2.3%;
+    transform:translateX(-50%);
+    background-image:repeating-linear-gradient(180deg, var(--mayan) 0 4px, transparent 4px 8px);
+    background-size:100% 200%;
+    opacity:0; transition:opacity .4s; z-index:1;
+  }
+  .search-wire.show{opacity:1; animation:wireFlowV .5s linear infinite;}
+  @keyframes wireFlowV{to{background-position:0 -16px;}}
+
+  .stock-field{
+    display:flex; justify-content:space-between; align-items:center; gap:calc(8 * var(--u));
+    font-family:'IBM Plex Mono', monospace; font-size:calc(14 * var(--u));
+    padding:calc(8 * var(--u)) calc(10 * var(--u)); margin-bottom:calc(5 * var(--u));
+    border:1px dashed var(--slate); border-radius:4px;
+    transform-origin:center; transition:border-color .3s;
+  }
+  .stock-field.mag{animation:fieldMag .5s ease;}
+  @keyframes fieldMag{
+    0%{transform:scale(1); border-color:var(--slate);}
+    50%{transform:scale(1.28); border-color:var(--atomic);}
+    100%{transform:scale(1); border-color:var(--slate);}
+  }
+  .stock-field .label{color:var(--slate);}
+  .stock-field .value{font-weight:600; color:var(--slate);}
+  .stock-field .value.filled{color:var(--oxford);}
+
+  /* narration tag: one at a time, placed next to the action */
+  .tag{
+    position:absolute; left:var(--tx); top:var(--ty); z-index:6;
+    width:max-content; max-width:var(--tw, 30%);
+    --tagbg:var(--oxford);
+    background:var(--tagbg); color:#fff;
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(15.5 * var(--u)); line-height:1.35;
+    padding:calc(9 * var(--u)) calc(14 * var(--u)); border-radius:calc(9 * var(--u));
+    opacity:0; pointer-events:none; transition:opacity .25s ease;
+  }
+  .tag.show{opacity:1;}
+  .tag.plain{background:none; color:var(--oxford); font-size:calc(21 * var(--u)); padding:0; text-align:center;}
+  .tag.plain::before{display:none;}
+  .tag.say{--tagbg:var(--mayan); color:var(--oxford);}
+  .tag.s-below{transform:translate(-50%, var(--tg)); text-align:center;}
+  .tag.s-above{transform:translate(-50%, calc(-100% - var(--tg))); text-align:center;}
+  .tag.s-right{transform:translate(var(--tg), -50%);}
+  .tag.s-left{transform:translate(calc(-100% - var(--tg)), -50%);}
+  .tag::before{content:""; position:absolute; border-style:solid; border-color:transparent;}
+  .tag.s-below::before{bottom:100%; left:50%; margin-left:calc(-8 * var(--u)); border-width:0 calc(8 * var(--u)) calc(8 * var(--u)); border-bottom-color:var(--tagbg);}
+  .tag.s-above::before{top:100%; left:50%; margin-left:calc(-8 * var(--u)); border-width:calc(8 * var(--u)) calc(8 * var(--u)) 0; border-top-color:var(--tagbg);}
+  .tag.s-right::before{right:100%; top:50%; margin-top:calc(-8 * var(--u)); border-width:calc(8 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u)) 0; border-right-color:var(--tagbg);}
+  .tag.s-left::before{left:100%; top:50%; margin-top:calc(-8 * var(--u)); border-width:calc(8 * var(--u)) 0 calc(8 * var(--u)) calc(8 * var(--u)); border-left-color:var(--tagbg);}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.01s !important; transition-duration:.01s !important;}
+  }
+  @media (max-width:640px){
+    .wrap{padding:28px 14px 48px;}
+  }
+
+  .note{
+    margin-top:28px; background:var(--soft); border-left:3px solid var(--indigo);
+    padding:16px 20px; border-radius:2px; font-size:14px; color:var(--oxford); max-width:740px;
+  }
+
+  .branded-panel{
+    display:none; position:absolute; left:0; top:5%; width:100%; height:93%;
+    background:var(--oxford); border-radius:12px; overflow:hidden;
+  }
+  #panelFooter{padding-left:calc(28 * var(--u) + 2px); z-index:5;}
+  .branded-panel.active{display:block;}
+  .branded-panel .slide{
+    position:absolute; inset:0; padding:calc(40 * var(--u)) calc(60 * var(--u)) calc(100 * var(--u));
+    opacity:0; transition:opacity .35s ease; pointer-events:none; overflow:auto;
+    display:flex; flex-direction:column; justify-content:center;
+  }
+  .branded-panel .slide.current{opacity:1; pointer-events:auto;}
+  .intro-eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:calc(14 * var(--u)); color:var(--mayan);
+    margin:0 0 18px;
+  }
+  .branded-panel .slide h2{
+    font-family:'Space Grotesk', sans-serif; font-size:calc(38 * var(--u));
+    font-weight:600; margin:0 0 20px; color:#fff; line-height:1.2;
+  }
+  .branded-panel .slide p{color:#9FB4CE; font-size:calc(18 * var(--u)); line-height:1.6; margin:0 0 20px;}
+  .branded-panel .slide[data-slide="ask"] p{font-size:calc(23 * var(--u)); line-height:1.4; color:var(--mayan); margin-bottom:calc(16 * var(--u));}
+  .hl-orange{font-size:calc(30 * var(--u)); font-weight:700; color:var(--atomic);}
+  .branded-panel .slide p.sub-line{
+    font-family:'IBM Plex Mono', monospace; font-size:calc(16 * var(--u)); color:var(--mayan); margin:0 0 24px;
+  }
+  .branded-panel .slide p.highlight-line{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(30 * var(--u));
+    color:var(--mayan); line-height:1.35; margin:24px 0 0;
+  }
+  .branded-panel .slide ul{list-style:none; margin:0 0 20px; padding:0;}
+  .branded-panel .slide li{
+    color:#fff; font-size:calc(19 * var(--u)); padding:10px 0 10px 28px; position:relative;
+    border-top:1px solid rgba(255,255,255,.12);
+  }
+  .branded-panel .slide li:first-child{border-top:none;}
+  .branded-panel .slide li::before{
+    content:"✓"; position:absolute; left:0; top:10px; color:var(--mayan); font-weight:700;
+  }
+  .r2-word{opacity:0; transition:opacity .3s;}
+  .r2-word.show{opacity:1;}
+  .btn.await{opacity:0; pointer-events:none;}
+  .btn{transition:opacity .4s;}
+  .btn.primary.highlight{animation:btnPulse 1.4s ease-in-out infinite;}
+  @keyframes btnPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(51,204,255,.75); transform:scale(1);}
+    50%{box-shadow:0 0 0 10px rgba(51,204,255,0); transform:scale(1.05);}
+  }
+  .instant{transition:none !important;}
+  .opt-btn{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:calc(21 * var(--u)); line-height:1.35;
+    text-align:left; cursor:pointer;
+    color:var(--mayan); background:transparent; border:2px solid var(--mayan);
+    border-radius:calc(10 * var(--u)); padding:calc(14 * var(--u)) calc(20 * var(--u));
+    transition:background-color .2s, color .2s;
+  }
+  .opt-row{display:flex; align-items:stretch; gap:calc(16 * var(--u)); flex-wrap:wrap;}
+  .opt-row .opt-btn:first-child{max-width:60%;}
+  .opt-btn:hover{background:rgba(51,204,255,.14);}
+  .opt-btn.chosen{background:var(--mayan); color:var(--oxford); cursor:default;}
+  .name-row{display:none; align-items:center; gap:calc(12 * var(--u)); margin-top:calc(22 * var(--u));}
+  .name-row.show{display:flex;}
+  .name-row input{
+    font-family:'Space Grotesk', sans-serif; font-size:calc(21 * var(--u)); color:#fff;
+    background:rgba(255,255,255,.08); border:2px solid #9FB4CE; border-radius:calc(8 * var(--u));
+    padding:calc(11 * var(--u)) calc(16 * var(--u)); width:calc(380 * var(--u)); max-width:60%; outline:none;
+  }
+  .name-row input:focus{border-color:var(--mayan);}
+  .name-row input::placeholder{color:#7F93AD;}
+  .name-row .btn-start{font-size:calc(18 * var(--u)); padding:calc(12 * var(--u)) calc(26 * var(--u));}
+  .thanks-line{margin-top:calc(8 * var(--u));}
+  .branded-panel .slide p.send-error{color:var(--atomic); font-size:calc(17 * var(--u)); margin:calc(10 * var(--u)) 0 0; min-height:0;}
+  .btn-start{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:14px;
+    background:var(--mayan); color:var(--oxford); border:none;
+    border-radius:6px; padding:11px 22px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Agents, now on the open web.</h1>
+  <p class="sub">Step through it one action at a time.</p>
+
+
+  <div class="stage-holder" id="slideHolder" style="display:none">
+  <div class="stage slide-stage">
+  <div class="branded-panel" id="brandedPanel">
+    <div class="slide" data-slide="intro">
+      <p class="intro-eyebrow">Acumatica · AI Agents · 27R1</p>
+      <h2>Agents that can read the web.</h2>
+      <p>A short walkthrough of what is new, and what we need from you next.</p>
+    </div>
+    <div class="slide" data-slide="agenda">
+      <p class="intro-eyebrow">Agenda</p>
+      <h2>What we will cover</h2>
+      <ul>
+        <li>AI Agents: what it can do today (26R2)</li>
+        <li>What agents will do in 27R1</li>
+        <li>What it means for you</li>
+        <li>How you can help</li>
+      </ul>
+    </div>
+    <div class="slide" data-slide="usecases">
+      <p class="intro-eyebrow">Acumatica · 26R2</p>
+      <h2>Today, in 26R2, AI Agents can:</h2>
+      <ul>
+        <li>Generates case closure notes</li>
+        <li>Creates stock item descriptions</li>
+        <li>Creates opportunity summaries</li>
+        <li>Auto-tags files</li>
+        <li>...and much more</li>
+      </ul>
+      <p>All of this happens within Acumatica's boundaries.</p>
+    </div>
+    <div class="slide" data-slide="r2">
+      <p class="intro-eyebrow">Acumatica · 27R1</p>
+      <h2 class="r2-line"><span class="r2-word">In</span> <span class="r2-word">27R1,</span> <span class="r2-word">AI</span> <span class="r2-word">Agents</span> <span class="r2-word">can</span> <span class="r2-word">do</span> <span class="r2-word">much</span> <span class="r2-word">more.</span></h2>
+      <p class="highlight-line r2-line2"><span class="r2-word">Please</span> <span class="r2-word">trigger</span> <span class="r2-word">the</span> <span class="r2-word">pre-built</span> <span class="r2-word">agent</span> <span class="r2-word">to</span> <span class="r2-word">fill</span> <span class="r2-word">the</span> <span class="r2-word">stock</span> <span class="r2-word">item</span> <span class="r2-word">description.</span></p>
+    </div>
+    <div class="slide" data-slide="summary">
+      <p class="highlight-line">AI Agents can now also search the web and fetch, which unlocks numerous use cases.</p>
+    </div>
+    <div class="slide" data-slide="ask">
+      <h2>The ask</h2>
+      <p><span class="hl-orange">Think of a task</span> in your daily work that would be easier if an agent could look things up on the web. Bring us <span class="hl-orange">one real scenario</span> and we will build the agent with you in AI Agents. One of these will <span class="hl-orange">ship prebuilt in 27R1</span>, so web search gets proven on real work, not just in a demo.</p>
+      <p>If you want to talk it through, reach out to <span class="hl-orange">Vishal Srinivasan</span> or <span class="hl-orange">Omar Ghazi</span>. They will connect you with the AI/ML team and help get your agent built and shipped.</p>
+    </div>
+    <div class="slide" data-slide="thankyou">
+      <h2>Thank you.</h2>
+      <p class="sub-line" id="interestLine">If you are interested, let us know.</p>
+      <div class="opt-row" id="optRow">
+        <button class="opt-btn" id="interestBtn">Yes, I will get involved. I will think of a use case, and you can reach out to me.</button>
+        <button class="opt-btn" id="noBtn">Naah</button>
+      </div>
+      <div class="name-row" id="nameRow">
+        <input type="text" id="nameInput" placeholder="Your name" maxlength="60" autocomplete="off">
+        <button class="btn-start" id="nameSend">Send</button>
+      </div>
+      <p class="send-error" id="sendError"></p>
+      <p class="highlight-line thanks-line" id="thanksLine"></p>
+    </div>
+    <div class="pane-footer" id="panelFooter">
+      <div class="controls in-pane" id="controls">
+        <button class="btn ghost" id="prevBtn">← Prev</button>
+        <button class="btn primary" id="nextBtn">Log in to Acumatica →</button>
+        <button class="btn ghost" id="rejectBtn" style="display:none">Reject</button>
+        <button class="btn ghost" id="restartBtn">Restart</button>
+        <span class="progress" id="progress"></span>
+      </div>
+    </div>
+  </div>
+  </div>
+  </div>
+
+  <div class="stage-holder">
+  <div class="stage">
+    <div class="erp-box revealable" id="erpBox"><div class="pane-footer" id="paneFooter"></div></div>
+    <div class="erp-label-row revealable" id="erpLabelRow">
+      <div class="erp-label">Acumatica ERP</div>
+      <span class="erp-version" id="erpVersion">26R2</span>
+    </div>
+
+    <div class="chip distribution revealable" id="distChip">
+      <div class="mini-title bento-title">Stock Items</div>
+      <div class="fake-line" style="width:80%"></div>
+      <div class="fake-line" style="width:55%"></div>
+      <div class="mini-title center-title">Stock Item: AA12500</div>
+      <div class="fields-wrap">
+        <div class="stock-field" id="descField"><span class="label">Description</span><span class="value" id="descVal">—</span></div>
+        <div class="stock-field" id="actualField"><span class="label">Actual Price</span><span class="value filled" id="actualVal">$45.00</span></div>
+        <div class="stock-field" id="suggField"><span class="label">AI Suggested Price</span><span class="value" id="suggVal">—</span></div>
+      </div>
+    </div>
+
+    <div class="bento-tile screen-tile revealable" id="salesTile" style="left:22.75%;top:9%;width:16.75%;height:20%;">Sales Orders<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="poTile" style="left:41.5%;top:9%;width:16.75%;height:20%;">Purchase Orders<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="custTile" style="left:60.25%;top:9%;width:16.75%;height:20%;">Customers<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="vendorsTile" style="left:4%;top:31%;width:16.75%;height:20%;">Vendors<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="casesTile" style="left:22.75%;top:31%;width:16.75%;height:20%;">Cases<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="employeesTile" style="left:41.5%;top:31%;width:16.75%;height:20%;">Employees<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+    <div class="bento-tile screen-tile revealable" id="projectsTile" style="left:60.25%;top:31%;width:16.75%;height:20%;">Projects<div class="fake-line" style="width:75%"></div><div class="fake-line" style="width:50%"></div></div>
+
+    <div class="ai-box revealable" id="ai-automation">AI Agents</div>
+    <div class="ai-box revealable" id="ai-assistant">AI Assistant</div>
+    <div class="bento-tile tool-solid receipt revealable" id="receiptTile" style="left:4%;top:71%;width:23%;height:14%;">Receipt Recognition</div>
+    <div class="bento-tile tool-solid charts revealable" id="chartsTile" style="left:29%;top:71%;width:23%;height:14%;">Charts</div>
+    <div class="bento-tile tool-solid anomaly revealable" id="anomalyTile" style="left:54%;top:71%;width:23%;height:14%;">Anomaly Detection</div>
+
+    <div class="db-badge" id="dbBadge">
+      <div class="db-icon-wrap">
+        <div class="scan-ring ring1"></div>
+        <div class="scan-ring ring2"></div>
+        <svg viewBox="0 0 24 24" width="88" height="88" fill="none" stroke="#004A80" stroke-width="1.2">
+          <ellipse cx="12" cy="5" rx="8" ry="3"/>
+          <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
+          <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>
+        </svg>
+      </div>
+      <span>Database</span>
+    </div>
+
+    <div class="agent-wrap" id="agentWrap">
+      <div class="agent-jiggle">
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <rect x="5" y="7" width="14" height="11" rx="3" fill="#fff"/>
+          <circle cx="9.5" cy="12.5" r="1.3" fill="#0C1B3B"/>
+          <circle cx="14.5" cy="12.5" r="1.3" fill="#0C1B3B"/>
+          <line x1="12" y1="7" x2="12" y2="4" stroke="#fff" stroke-width="1.3"/>
+          <circle cx="12" cy="3.2" r="1.1" fill="#fff"/>
+        </svg>
+      </div>
+      <div class="hand left" id="handLeft"><div class="forearm"></div></div>
+      <div class="hand right" id="handRight"><div class="forearm"></div></div>
+    </div>
+
+    <div class="web-search-badge" id="webSearchBadge">
+      <svg class="spin-globe" viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#004A80" stroke-width="1.3">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/>
+      </svg>
+      <span>Web Search</span>
+    </div>
+    <div class="search-wire" id="searchWire"></div>
+
+    <div class="hosts-box" id="hostsBox">
+      <div class="hosts-title">Competitor Sites</div>
+      <ul>
+        <li>https://rivalsupply.com</li>
+        <li>https://vendorquote.com</li>
+        <li>https://marketscan.net</li>
+      </ul>
+    </div>
+
+    <div class="tag" id="tag"></div>
+  </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  const TAGS = {
+    hub: (text, say, o) => ({ text, x:(o && o.x) || 35, y:64, side:'below', w:(o && o.w) || 42, gap:36, say:!!say }),
+    statement: text => ({ text, x:44, y:74, side:'below', w:54, gap:0, plain:true }),
+    db: { text:'The agent reads the data', x:15, y:63.2, side:'right', w:17, gap:6 },
+    desc: { text:'The agent fills the description', x:56.5, y:19.8, side:'right', w:17, gap:6 },
+    hostsIntro: { text:'Searches only competitor sites', x:88.25, y:53.5, side:'below', w:23.5, gap:8 },
+    host: (name, price) => ({ text:'The agent finds ' + price, x:88.25, y:53.5, side:'below', w:23.5, gap:8 }),
+    suggest: { text:'The agent suggests a price', x:56.5, y:32.8, side:'right', w:17, gap:6 }
+  };
+  const hostNames = ['https://rivalsupply.com', 'https://vendorquote.com', 'https://marketscan.net'];
+  const competitorPrices = ['$52.30', '$47.15', '$58.90'];
+  const actualPrice = '$45.00';
+  const suggestedPrice = '$52.00';
+  let decision = null;   // 'approve' | 'reject', chosen at the approval step
+
+  const steps = [
+    { patch: { slide:'intro' }, nextLabel:"Start walkthrough →" },
+    { patch: { slide:'agenda' }, nextLabel:"Next →" },
+    { patch: { slide:'usecases' }, nextLabel:"Next →" },
+    { patch: { slide:'r2' }, nextLabel:"Update Stock Item Description →" },
+    { tag: TAGS.hub('The agent updates the description by working with the data fields.'), patch: { slide:null, loggedIn:true, agentCreated:true, hub:true, descDone:true, focused:true }, special:'createDescription', nextLabel:"Next →" },
+    { tag: TAGS.statement("The user wants the agent to suggest prices by comparing competitors' prices."), patch: {}, nextLabel:"Suggest Prices →" },
+    { tag: TAGS.hub('The agent does not have the capability to search the web to retrieve the most up-to-date information.', false, { x:37, w:44 }), patch: { agentAsk:true }, nextLabel:"Switch to 27R1 →" },
+    { tag: TAGS.hub('Version upgraded.'), patch: { agentAsk:false, upgraded:true }, special:'applyUpgrade', nextLabel:"Compare Prices and Suggest →" },
+    { tag: TAGS.hub('The agent suggests ' + suggestedPrice + '. The user approves or rejects.'), patch: { hostsBoxShown:true, suggestDone:true }, special:'searchAndSuggest', nextLabel:"Approve", reject:true },
+    { tag: () => decision === 'reject'
+        ? TAGS.hub('The user rejects. The actual price stays ' + actualPrice + '.')
+        : TAGS.hub('The user approves. The actual price is updated to ' + suggestedPrice + '.'),
+      patch: { decided:true }, nextLabel:"Next →" },
+    { patch: { slide:'summary' }, nextLabel:"Next →" },
+    { patch: { slide:'ask' }, nextLabel:"Next →" },
+    { patch: { slide:'thankyou' } }
+  ];
+
+  const base = { loggedIn:false, agentCreated:false, hub:false, agentNamed:false, descDone:false, focused:false, agentAsk:false, upgraded:false, hostsBoxShown:false, slide:null };
+  let current = 0;
+  const maxStep = steps.length - 1;
+
+  const el = id => document.getElementById(id);
+  const $ = {
+    erpBox: el('erpBox'), erpLabel: el('erpLabelRow'), erpVersion: el('erpVersion'), distChip: el('distChip'),
+    aiAuto: el('ai-automation'), aiAssist: el('ai-assistant'),
+    salesTile: el('salesTile'), poTile: el('poTile'), custTile: el('custTile'),
+    vendorsTile: el('vendorsTile'), casesTile: el('casesTile'), employeesTile: el('employeesTile'), projectsTile: el('projectsTile'),
+    receiptTile: el('receiptTile'), chartsTile: el('chartsTile'), anomalyTile: el('anomalyTile'),
+    stage: document.querySelector('.stage-holder:not(#slideHolder)'), agentWrap: el('agentWrap'),
+    brandedPanel: el('brandedPanel'), slides: document.querySelectorAll('.branded-panel .slide'),
+    tagEl: el('tag'),
+    handLeft: el('handLeft'), handRight: el('handRight'),
+    hostsBox: el('hostsBox'), webSearchBadge: el('webSearchBadge'), searchWire: el('searchWire'),
+    descField: el('descField'), descVal: el('descVal'), dbBadge: el('dbBadge'),
+    actualField: el('actualField'), actualVal: el('actualVal'),
+    suggField: el('suggField'), suggVal: el('suggVal'),
+    rejectBtn: el('rejectBtn'),
+    progress: el('progress'),
+    prevBtn: el('prevBtn'), nextBtn: el('nextBtn'), restartBtn: el('restartBtn')
+  };
+
+  function computeState(n){
+    const s = Object.assign({}, base);
+    for(let i=0;i<=n;i++){ Object.assign(s, steps[i].patch); }
+    return s;
+  }
+
+  function setChrome(isBranded){
+    const ctrl = el('controls');
+    const ctrlTarget = isBranded ? el('panelFooter') : el('paneFooter');
+    if(ctrl.parentElement !== ctrlTarget){ ctrlTarget.appendChild(ctrl); }
+    el('slideHolder').style.display = isBranded ? '' : 'none';
+    $.brandedPanel.classList.toggle('active', isBranded);
+    $.stage.style.display = isBranded ? 'none' : '';
+  }
+  let r2Timers = [];
+  function clearR2Timers(){ r2Timers.forEach(clearTimeout); r2Timers = []; }
+
+  function render(){
+    const s = computeState(current);
+
+    [$.erpBox, $.erpLabel, $.distChip, $.aiAuto].forEach(node => {
+      node.classList.toggle('open', s.loggedIn);
+    });
+    [$.aiAssist, $.salesTile, $.poTile, $.custTile, $.vendorsTile, $.casesTile, $.employeesTile, $.projectsTile, $.receiptTile, $.chartsTile, $.anomalyTile].forEach(node => {
+      node.classList.toggle('open', s.loggedIn && !s.focused);
+    });
+    $.distChip.classList.toggle('center-pos', s.focused);
+    $.aiAuto.classList.toggle('center-pos', s.focused);
+    $.aiAuto.classList.toggle('lit', s.hub);
+    $.agentWrap.classList.toggle('show', s.agentCreated);
+    $.agentWrap.classList.toggle('upgraded', s.upgraded);
+    if(s.agentCreated){ moveAgentTo(hubPos.x, hubPos.y); }
+    $.dbBadge.classList.toggle('show', s.focused);
+    $.dbBadge.classList.remove('pulse');
+    $.handLeft.classList.toggle('show', s.upgraded);
+    $.handRight.classList.toggle('show', s.upgraded);
+    $.hostsBox.classList.toggle('show', s.hostsBoxShown);
+    $.webSearchBadge.classList.toggle('show', s.hostsBoxShown);
+    $.searchWire.classList.toggle('show', s.hostsBoxShown);
+    $.erpVersion.textContent = s.upgraded ? '27R1' : '26R2';
+    $.erpVersion.classList.toggle('v2', s.upgraded);
+
+    $.descVal.textContent = s.descDone ? descriptionValue : '—';
+    $.descVal.classList.toggle('filled', s.descDone);
+    $.descField.classList.remove('mag');
+    const approved = s.decided && decision === 'approve';
+    const rejected = s.decided && decision === 'reject';
+    $.actualVal.textContent = approved ? suggestedPrice : actualPrice;
+    $.suggVal.textContent = (s.suggestDone && !rejected) ? suggestedPrice : '—';
+    $.suggVal.classList.toggle('filled', s.suggestDone && !rejected);
+    [$.actualField, $.suggField].forEach(f => f.classList.remove('mag'));
+
+    const isBranded = !!s.slide;
+    setChrome(isBranded);
+    const r2WasCurrent = document.querySelector('[data-slide="r2"]').classList.contains('current');
+    $.slides.forEach(el => el.classList.toggle('current', el.dataset.slide === s.slide));
+    const r2Words = document.querySelectorAll('[data-slide="r2"] .r2-word');
+    if(s.slide === 'r2' && !r2WasCurrent){
+      clearR2Timers();
+      r2Words.forEach(w => w.classList.remove('show'));
+      $.nextBtn.classList.remove('highlight');
+      $.nextBtn.classList.add('await');
+      let t = 0;
+      r2Words.forEach((w, i) => {
+        if(i === 8) t += 450;
+        r2Timers.push(setTimeout(() => w.classList.add('show'), t));
+        t += 140;
+      });
+      r2Timers.push(setTimeout(() => {
+        $.nextBtn.classList.remove('await');
+        $.nextBtn.classList.add('highlight');
+      }, t + 350));
+    } else if(s.slide !== 'r2'){
+      clearR2Timers();
+      r2Words.forEach(w => w.classList.remove('show'));
+      $.nextBtn.classList.remove('await', 'highlight');
+    }
+
+    showTagNow(typeof steps[current].tag === 'function' ? steps[current].tag() : steps[current].tag);
+    $.progress.textContent = `Step ${current} of ${maxStep}`;
+    $.prevBtn.disabled = current === 0;
+    $.nextBtn.disabled = current === maxStep;
+    $.nextBtn.textContent = steps[current].nextLabel || "Next →";
+    $.rejectBtn.style.display = steps[current].reject ? '' : 'none';
+    $.rejectBtn.disabled = false;
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  let tagToken = 0;
+  function placeTag(t){
+    $.tagEl.className = 'tag' + (t.say ? ' say' : '') + (t.plain ? ' plain' : '') + ' s-' + t.side;
+    $.tagEl.style.setProperty('--tx', t.x + '%');
+    $.tagEl.style.setProperty('--ty', t.y + '%');
+    $.tagEl.style.setProperty('--tw', (t.w || 30) + '%');
+    $.tagEl.style.setProperty('--tg', 'calc(' + (t.gap == null ? 36 : t.gap) + ' * var(--u))');
+    $.tagEl.innerHTML = t.text;
+    $.tagEl.dataset.key = [t.text, t.x, t.y, t.side, t.say ? 1 : 0].join('|');
+  }
+  // static: used when a step is simply displayed
+  function showTagNow(t){
+    tagToken++;
+    if(!t){ $.tagEl.classList.remove('show'); delete $.tagEl.dataset.key; return; }
+    const key = [t.text, t.x, t.y, t.side, t.say ? 1 : 0].join('|');
+    if($.tagEl.dataset.key === key && $.tagEl.classList.contains('show')) return;
+    placeTag(t);
+    void $.tagEl.offsetWidth;
+    $.tagEl.classList.add('show');
+  }
+  // animated: fade the old label out, then bring the new one in beside the action
+  async function setTag(t){
+    const my = ++tagToken;
+    const wasShown = $.tagEl.classList.contains('show');
+    $.tagEl.classList.remove('show');
+    if(wasShown) await sleep(260);
+    if(my !== tagToken || !t) return;
+    placeTag(t);
+    void $.tagEl.offsetWidth;
+    $.tagEl.classList.add('show');
+  }
+  const hostStops = [
+    { x:88.25, y:34.4 },
+    { x:88.25, y:39.6 },
+    { x:88.25, y:44.8 }
+  ];
+  const hubPos = { x:35, y:64 };
+  const descFieldStop = { x:35, y:19.8 };
+  const suggFieldStop = { x:35, y:32.8 };
+  const dbStop = { x:8.5, y:63.2 };
+  const descriptionValue = 'Heavy-duty cordless drill, 20V';
+
+  function moveAgentTo(x, y){
+    $.agentWrap.style.left = x + '%';
+    $.agentWrap.style.top = y + '%';
+  }
+
+  function lockButtons(){ $.nextBtn.disabled = true; $.prevBtn.disabled = true; $.restartBtn.disabled = true; $.rejectBtn.disabled = true; }
+
+  async function runSearchAndSuggestSequence(targetStep){
+    lockButtons();
+    await setTag(null);
+
+    $.hostsBox.classList.add('show');
+    $.webSearchBadge.classList.add('show');
+    $.searchWire.classList.add('show');
+    await sleep(500);
+    setTag(TAGS.hostsIntro);
+    await sleep(2000);
+
+    for(let i=0; i<hostStops.length; i++){
+      moveAgentTo(hostStops[i].x, hostStops[i].y);
+      await sleep(600);
+      setTag(TAGS.host(hostNames[i], competitorPrices[i]));
+      await sleep(1600);
+    }
+
+    moveAgentTo(suggFieldStop.x, suggFieldStop.y);
+    setTag(TAGS.suggest);
+    await sleep(800);
+    $.suggVal.textContent = suggestedPrice;
+    $.suggVal.classList.add('filled');
+    $.suggField.classList.add('mag');
+    await sleep(500);
+    $.suggField.classList.remove('mag');
+    await sleep(1400);
+
+    moveAgentTo(hubPos.x, hubPos.y);
+    await sleep(500);
+    setTag(steps[targetStep].tag);
+    await sleep(1800);
+
+    current = targetStep;
+    render();
+    $.restartBtn.disabled = false;
+  }
+
+  async function runCreateDescriptionSequence(targetStep){
+    lockButtons();
+
+    clearR2Timers();
+    $.nextBtn.classList.remove('await', 'highlight');
+    setChrome(false);
+    showTagNow(null);
+    [$.distChip, $.aiAuto].forEach(n => n.classList.add('instant'));
+    $.distChip.classList.add('center-pos');
+    $.aiAuto.classList.add('center-pos');
+    void $.distChip.offsetWidth;
+    [$.distChip, $.aiAuto].forEach(n => n.classList.remove('instant'));
+    [$.erpBox, $.erpLabel, $.distChip, $.aiAuto].forEach(n => n.classList.add('open'));
+    $.dbBadge.classList.add('show');
+    await sleep(800);
+
+    $.aiAuto.classList.add('lit');
+    $.agentWrap.classList.add('show');
+    moveAgentTo(hubPos.x, hubPos.y);
+    await sleep(500);
+
+    setTag(TAGS.hub('The user triggers the Stock Item Description Agent.'));
+    await sleep(2200);
+
+    moveAgentTo(dbStop.x, dbStop.y);
+    setTag(TAGS.db);
+    await sleep(700);
+    $.dbBadge.classList.add('pulse');
+    await sleep(1600);
+    $.dbBadge.classList.remove('pulse');
+    await sleep(200);
+
+    moveAgentTo(descFieldStop.x, descFieldStop.y);
+    setTag(TAGS.desc);
+    await sleep(800);
+
+    $.descVal.textContent = descriptionValue;
+    $.descVal.classList.add('filled');
+    $.descField.classList.add('mag');
+    await sleep(500);
+    $.descField.classList.remove('mag');
+    await sleep(1400);
+
+    moveAgentTo(hubPos.x, hubPos.y);
+    await sleep(500);
+    setTag(steps[targetStep].tag);
+    await sleep(1900);
+
+    current = targetStep;
+    render();
+    $.restartBtn.disabled = false;
+  }
+
+  async function runApplyUpgradeSequence(targetStep){
+    lockButtons();
+    await setTag(null);
+
+    $.erpVersion.classList.add('flip');
+    await sleep(350);
+    $.erpVersion.textContent = '27R1';
+    $.erpVersion.classList.add('v2');
+    await sleep(450);
+    $.erpVersion.classList.remove('flip');
+    await sleep(500);
+
+    $.handLeft.classList.add('show');
+    $.handRight.classList.add('show');
+    $.agentWrap.classList.add('upgraded');
+    setTag(steps[targetStep].tag);
+    await sleep(2000);
+
+    current = targetStep;
+    render();
+    $.restartBtn.disabled = false;
+  }
+
+  $.nextBtn.addEventListener('click', () => {
+    if(current >= maxStep) return;
+    const targetStep = current + 1;
+    if(steps[current].reject){ decision = 'approve'; }
+    if(steps[targetStep].special === 'searchAndSuggest'){
+      runSearchAndSuggestSequence(targetStep);
+    } else if(steps[targetStep].special === 'createDescription'){
+      runCreateDescriptionSequence(targetStep);
+    } else if(steps[targetStep].special === 'applyUpgrade'){
+      runApplyUpgradeSequence(targetStep);
+    } else {
+      current = targetStep;
+      render();
+      if(steps[targetStep].patch.decided && decision === 'approve'){ $.actualField.classList.add('mag'); }
+    }
+  });
+  $.rejectBtn.addEventListener('click', () => {
+    if(!steps[current].reject) return;
+    decision = 'reject';
+    current++;
+    render();
+    $.suggField.classList.add('mag');
+  });
+  const optRow = el('optRow'), noBtn = el('noBtn');
+  const interestBtn = el('interestBtn'), nameRow = el('nameRow'), nameInput = el('nameInput'),
+        nameSend = el('nameSend'), thanksLine = el('thanksLine'), interestLine = el('interestLine');
+  function resetThanks(){
+    optRow.style.display = '';
+    interestBtn.classList.remove('chosen');
+    interestLine.style.display = '';
+    nameRow.classList.remove('show');
+    nameInput.value = '';
+    thanksLine.textContent = '';
+    sendError.textContent = '';
+    setSending(false);
+  }
+  interestBtn.addEventListener('click', () => {
+    interestBtn.classList.add('chosen');
+    nameRow.classList.add('show');
+    nameInput.focus();
+  });
+  const cfg = window.DEMO_CONFIG || {};
+  const sendError = el('sendError');
+  let sending = false;
+  function setSending(on){
+    sending = on;
+    nameSend.disabled = on;
+    nameInput.disabled = on;
+    nameSend.textContent = on ? 'Sending' : 'Send';
+  }
+  async function submitName(){
+    if(sending) return;
+    const n = nameInput.value.trim();
+    if(!n){ nameInput.focus(); return; }
+    sendError.textContent = '';
+    if(cfg.responseEndpoint){
+      setSending(true);
+      try{
+        const res = await fetch(cfg.responseEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: n, response: 'interested', submittedAt: new Date().toISOString() })
+        });
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+      }catch(err){
+        setSending(false);
+        sendError.textContent = 'That did not go through. Please try again.';
+        nameInput.focus();
+        return;
+      }
+      setSending(false);
+    }
+    nameRow.classList.remove('show');
+    optRow.style.display = 'none';
+    interestLine.style.display = 'none';
+    thanksLine.textContent = 'Thank you, ' + n + '. We will reach out to you soon.';
+  }
+  nameSend.addEventListener('click', submitName);
+  nameInput.addEventListener('keydown', e => { if(e.key === 'Enter') submitName(); });
+  $.prevBtn.addEventListener('click', () => { if(current > 0){ current--; render(); } });
+  $.restartBtn.addEventListener('click', () => {
+    current = 0;
+    decision = null;
+    resetThanks();
+    showTagNow(null);
+    $.descField.classList.remove('mag');
+    $.descVal.textContent = '—';
+    $.descVal.classList.remove('filled');
+    [$.actualField, $.suggField].forEach(f => f.classList.remove('mag'));
+    $.suggVal.textContent = '—';
+    $.suggVal.classList.remove('filled');
+    $.aiAuto.classList.remove('lit');
+    $.agentWrap.classList.remove('show');
+    $.hostsBox.classList.remove('show');
+    $.webSearchBadge.classList.remove('show');
+    $.searchWire.classList.remove('show');
+    $.dbBadge.classList.remove('show','pulse');
+    moveAgentTo(hubPos.x, hubPos.y);
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>
